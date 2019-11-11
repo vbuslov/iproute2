@@ -1,0 +1,88 @@
+.TH DEVLINK\-SUBDEV 8 "26 Sep 2019" "iproute2" "Linux"
+.SH NAME
+devlink-subdev \- devlink subdev configuration
+.SH SYNOPSIS
+.sp
+.ad l
+.in +8
+.ti -8
+.B devlink
+.RI "[ " OPTIONS " ]"
+.B subdev
+.RI  " { " COMMAND " | "
+.BR help " }"
+.sp
+
+.ti -8
+.IR OPTIONS " := { "
+\fB\-V\fR[\fIersion\fR] |
+\fB\-n\fR[\fIno-nice-names\fR] }
+
+.ti -8
+.BR "devlink subdev set "
+.IR DEV/SUBDEV_INDEX
+.RI "[ "
+.BR hw_addr " HW_ADDR"
+.RI "]"
+
+.ti -8
+.B devlink subdev show
+.RI "[ " DEV/SUBDEV_INDEX " ]"
+
+.ti -8
+.B devlink subdev help
+
+.SH "DESCRIPTION"
+.SS devlink subdev set - change devlink subdev attributes
+
+.PP
+.B "DEV/SUBDEV_INDEX"
+- specifies the devlink subdev to operate on.
+
+.in +4
+Format is:
+.in +2
+BUS_NAME/BUS_ADDRESS/SUBDEV_INDEX
+
+.TP
+.BR hw_addr " HW_ADDR"
+hw_addr of the target subdev
+
+.SS devlink subdev show - display devlink subdev attributes
+
+.PP
+.I "DEV/SUBDEV_INDEX"
+- specifies the devlink subdev to show.
+If this argument is omitted all subdevs are listed.
+
+.SH "EXAMPLES"
+.PP
+devlink subdev show
+.RS 4
+Shows the state of all devlink subdevs on the system.
+.RE
+.PP
+devlink subdev show pci/0000:01:00.0/1
+.RS 4
+Shows the state of specified devlink subdev.
+.RE
+.PP
+devlink subdev set pci/0000:01:00.0/1 hw_addr 10:22:33:44:55:66
+.RS 4
+Set the hw_addr of a the specified subdev.
+.RE
+
+.SH SEE ALSO
+.BR devlink (8),
+.BR devlink-dev (8),
+.BR devlink-sb (8),
+.BR devlink-monitor (8),
+.BR devlink-port (8),
+.BR devlink-health (8),
+.BR devlink-resource (8),
+.BR devlink-trap (8),
+.BR devlink-region (8),
+.br
+
+.SH AUTHOR
+Yuval Avnery <yuvalav@mellanox.com>

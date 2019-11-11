@@ -33,6 +33,7 @@
 #include "json_writer.h"
 #include "utils.h"
 #include "namespace.h"
+#include "rt_names.h"
 
 #define ESWITCH_MODE_LEGACY "legacy"
 #define ESWITCH_MODE_SWITCHDEV "switchdev"
@@ -262,6 +263,8 @@ static void ifname_map_free(struct ifname_map *ifname_map)
 #define DL_OPT_TRAP_ACTION		BIT(31)
 #define DL_OPT_TRAP_GROUP_NAME		BIT(32)
 #define DL_OPT_NETNS	BIT(33)
+#define DL_OPT_HANDLE_SUBDEV		BIT(34)
+#define DL_OPT_SUBDEV_HW_ADDR		BIT(35)
 
 struct dl_opts {
 	uint64_t present; /* flags of present items */
@@ -303,6 +306,9 @@ struct dl_opts {
 	enum devlink_trap_action trap_action;
 	bool netns_is_pid;
 	uint32_t netns;
+	uint32_t subdev_index;
+	int hw_addr_len;
+	uint8_t hw_addr[MAX_ADDR_LEN];
 };
 
 struct dl {
@@ -495,6 +501,11 @@ static const enum mnl_attr_data_type devlink_policy[DEVLINK_ATTR_MAX + 1] = {
 	[DEVLINK_ATTR_TRAP_METADATA] = MNL_TYPE_NESTED,
 	[DEVLINK_ATTR_TRAP_GROUP_NAME] = MNL_TYPE_STRING,
 	[DEVLINK_ATTR_RELOAD_FAILED] = MNL_TYPE_U8,
+	[DEVLINK_ATTR_SUBDEV_INDEX] = MNL_TYPE_U32,
+	[DEVLINK_ATTR_SUBDEV_FLAVOUR] = MNL_TYPE_U16,
+	[DEVLINK_ATTR_SUBDEV_PF_INDEX] = MNL_TYPE_U32,
+	[DEVLINK_ATTR_SUBDEV_VF_INDEX] = MNL_TYPE_U32,
+	[DEVLINK_ATTR_SUBDEV_HW_ADDR] = MNL_TYPE_BINARY,
 };
 
 static const enum mnl_attr_data_type
@@ -813,6 +824,53 @@ static int dl_argv_handle_port(struct dl *dl, char **p_bus_name,
 	default:
 		pr_err("Wrong port identification string format.\n");
 		pr_err("Expected \"bus_name/dev_name/port_index\" or \"netdev_ifname\".\n");
+		return -EINVAL;
+	}
+}
+
+static int __dl_argv_handle_subdev(char *str, char **p_bus_name,
+				 char **p_dev_name, uint32_t *p_subdev_index)
+{
+	char *handlestr;
+	char *portstr;
+	int err;
+
+	err = strslashrsplit(str, &handlestr, &portstr);
+	if (err) {
+		pr_err("subdev identification \"%s\" is invalid\n", str);
+		return err;
+	}
+	err = strtouint32_t(portstr, p_subdev_index);
+	if (err) {
+		pr_err("subdev index \"%s\" is not a number or not within range\n",
+		       portstr);
+		return err;
+	}
+	err = strslashrsplit(handlestr, p_bus_name, p_dev_name);
+	if (err) {
+		pr_err("subdev identification \"%s\" is invalid\n", str);
+		return err;
+	}
+	return 0;
+}
+
+static int dl_argv_handle_subdev(struct dl *dl, char **p_bus_name,
+			       char **p_dev_name, uint32_t *p_subdev_index)
+{
+	char *str = dl_argv_next(dl);
+	unsigned int slash_count;
+
+	if (!str) {
+		pr_err("Subdev identification (\"bus_name/dev_name/subdev_index\" .\n");
+		return -EINVAL;
+	}
+	slash_count = strslashcount(str);
+	if (slash_count == 2)
+		return __dl_argv_handle_subdev(str, p_bus_name,
+					     p_dev_name, p_subdev_index);
+	else {
+		pr_err("Wrong subdev identification string format.\n");
+		pr_err("Expected \"bus_name/dev_name/subdev_index\".\n");
 		return -EINVAL;
 	}
 }
@@ -1199,6 +1257,13 @@ static int dl_argv_parse(struct dl *dl, uint64_t o_required,
 		if (err)
 			return err;
 		o_found |= DL_OPT_HANDLE_REGION;
+	} else if (o_required & DL_OPT_HANDLE_SUBDEV) {
+		err = dl_argv_handle_subdev(dl, &opts->bus_name,
+					  &opts->dev_name,
+					  &opts->subdev_index);
+		if (err)
+			return err;
+		o_found |= DL_OPT_HANDLE_SUBDEV;
 	}
 
 	while (dl_argc(dl)) {
@@ -1479,6 +1544,19 @@ static int dl_argv_parse(struct dl *dl, uint64_t o_required,
 				opts->netns_is_pid = true;
 			}
 			o_found |= DL_OPT_NETNS;
+		} else if (dl_argv_match(dl, "hw_addr") &&
+			   (o_all & DL_OPT_SUBDEV_HW_ADDR)) {
+			const char *hw_addr;
+
+			dl_arg_inc(dl);
+			err = dl_argv_str(dl, &hw_addr);
+			if (err)
+				return err;
+			opts->hw_addr_len = ll_addr_a2n((char *)&opts->hw_addr,
+							MAX_ADDR_LEN, hw_addr);
+			if (opts->hw_addr_len < 0)
+				return -EINVAL;
+			o_found |= DL_OPT_SUBDEV_HW_ADDR;
 		} else {
 			pr_err("Unknown option \"%s\"\n", dl_argv(dl));
 			return -EINVAL;
@@ -1512,6 +1590,11 @@ static void dl_opts_put(struct nlmsghdr *nlh, struct dl *dl)
 		mnl_attr_put_strz(nlh, DEVLINK_ATTR_DEV_NAME, opts->dev_name);
 		mnl_attr_put_strz(nlh, DEVLINK_ATTR_REGION_NAME,
 				  opts->region_name);
+	} else if (opts->present & DL_OPT_HANDLE_SUBDEV) {
+		mnl_attr_put_strz(nlh, DEVLINK_ATTR_BUS_NAME, opts->bus_name);
+		mnl_attr_put_strz(nlh, DEVLINK_ATTR_DEV_NAME, opts->dev_name);
+		mnl_attr_put_u32(nlh, DEVLINK_ATTR_SUBDEV_INDEX,
+				 opts->subdev_index);
 	}
 	if (opts->present & DL_OPT_PORT_TYPE)
 		mnl_attr_put_u16(nlh, DEVLINK_ATTR_PORT_TYPE,
@@ -1606,6 +1689,10 @@ static void dl_opts_put(struct nlmsghdr *nlh, struct dl *dl)
 				 opts->netns_is_pid ? DEVLINK_ATTR_NETNS_PID :
 						      DEVLINK_ATTR_NETNS_FD,
 				 opts->netns);
+	if (opts->present & DL_OPT_SUBDEV_HW_ADDR)
+		mnl_attr_put(nlh, DEVLINK_ATTR_SUBDEV_HW_ADDR,
+			     opts->hw_addr_len, opts->hw_addr);
+
 }
 
 static int dl_argv_parse_put(struct nlmsghdr *nlh, struct dl *dl,
@@ -1627,6 +1714,7 @@ static bool dl_dump_filter(struct dl *dl, struct nlattr **tb)
 	struct nlattr *attr_dev_name = tb[DEVLINK_ATTR_DEV_NAME];
 	struct nlattr *attr_port_index = tb[DEVLINK_ATTR_PORT_INDEX];
 	struct nlattr *attr_sb_index = tb[DEVLINK_ATTR_SB_INDEX];
+	struct nlattr *attr_subdev_index = tb[DEVLINK_ATTR_SUBDEV_INDEX];
 
 	if (opts->present & DL_OPT_HANDLE &&
 	    attr_bus_name && attr_dev_name) {
@@ -1652,6 +1740,17 @@ static bool dl_dump_filter(struct dl *dl, struct nlattr **tb)
 		uint32_t sb_index = mnl_attr_get_u32(attr_sb_index);
 
 		if (sb_index != opts->sb_index)
+			return false;
+	}
+	if (opts->present & DL_OPT_HANDLE_SUBDEV &&
+	    attr_bus_name && attr_dev_name && attr_port_index) {
+		uint32_t subdev_index = mnl_attr_get_u32(attr_subdev_index);
+		const char *bus_name = mnl_attr_get_str(attr_bus_name);
+		const char *dev_name = mnl_attr_get_str(attr_dev_name);
+
+		if (strcmp(bus_name, opts->bus_name) != 0 ||
+		    strcmp(dev_name, opts->dev_name) != 0 ||
+		    subdev_index != opts->subdev_index)
 			return false;
 	}
 	return true;
@@ -1859,6 +1958,17 @@ static void pr_out_port_handle_start_arr(struct dl *dl, struct nlattr **tb, bool
 	dev_name = mnl_attr_get_str(tb[DEVLINK_ATTR_DEV_NAME]);
 	port_index = mnl_attr_get_u32(tb[DEVLINK_ATTR_PORT_INDEX]);
 	__pr_out_port_handle_start(dl, bus_name, dev_name, port_index, try_nice, true);
+}
+
+static void pr_out_subdev_handle_start(struct dl *dl, struct nlattr **tb,
+				     bool try_nice)
+{
+	uint32_t subdev_index = mnl_attr_get_u32(tb[DEVLINK_ATTR_SUBDEV_INDEX]);
+	const char *bus_name = mnl_attr_get_str(tb[DEVLINK_ATTR_BUS_NAME]);
+	const char *dev_name = mnl_attr_get_str(tb[DEVLINK_ATTR_DEV_NAME]);
+
+	__pr_out_port_handle_start(dl, bus_name, dev_name, subdev_index,
+				   try_nice, false);
 }
 
 static void pr_out_port_handle_end(struct dl *dl)
@@ -3160,6 +3270,147 @@ static int cmd_dev(struct dl *dl)
 	return -ENOENT;
 }
 
+static void cmd_subdev_help(void)
+{
+	pr_err("Usage: devlink subdev show [ DEV/SUBDEV_INDEX ]\n");
+	pr_err("       devlink subdev set DEV/SUBDEV_INDEX [ hw_addr HW_ADDR ]\n");
+}
+
+static const char *subdev_flavour_name(uint16_t flavour)
+{
+	switch (flavour) {
+	case DEVLINK_SUBDEV_FLAVOUR_PCI_PF:
+		return "pcipf";
+	case DEVLINK_SUBDEV_FLAVOUR_PCI_VF:
+		return "pcivf";
+	default:
+		return "<unknown flavour>";
+	}
+}
+
+static void pr_out_subdev(struct dl *dl, struct nlattr **tb)
+{
+	struct nlattr *port_index_attr = tb[DEVLINK_ATTR_PORT_INDEX];
+	struct nlattr *hw_addr_attr = tb[DEVLINK_ATTR_SUBDEV_HW_ADDR];
+	struct nlattr *flavour_attr = tb[DEVLINK_ATTR_SUBDEV_FLAVOUR];
+	struct nlattr *pf_attr = tb[DEVLINK_ATTR_SUBDEV_PF_INDEX];
+	struct nlattr *vf_attr = tb[DEVLINK_ATTR_SUBDEV_VF_INDEX];
+
+	pr_out_subdev_handle_start(dl, tb, false);
+	if (flavour_attr) {
+		uint16_t flavour = mnl_attr_get_u16(flavour_attr);
+
+		pr_out_str(dl, "flavour", subdev_flavour_name(flavour));
+		switch (flavour) {
+		case DEVLINK_SUBDEV_FLAVOUR_PCI_PF:
+		case DEVLINK_SUBDEV_FLAVOUR_PCI_VF:
+			if (pf_attr) {
+				uint32_t pf_index = mnl_attr_get_u32(pf_attr);
+
+				pr_out_uint(dl, "pf", pf_index);
+				if (vf_attr) {
+					uint32_t vf_index;
+
+					vf_index = mnl_attr_get_u32(vf_attr);
+					pr_out_uint(dl, "vf", vf_index);
+				}
+			}
+			if (port_index_attr) {
+				uint32_t port_index =
+					mnl_attr_get_u32(port_index_attr);
+
+				pr_out_uint(dl, "port_index", port_index);
+			}
+			break;
+		default:
+			break;
+		}
+
+	}
+
+	if (hw_addr_attr) {
+		uint8_t *hw_addr_bin = mnl_attr_get_payload(hw_addr_attr);
+		int hw_addr_len = mnl_attr_get_payload_len(hw_addr_attr);
+		char hw_addr[MAX_ADDR_LEN * 3];
+
+		ll_addr_n2a(hw_addr_bin, hw_addr_len, 0, hw_addr,
+			    ARRAY_SIZE(hw_addr));
+		pr_out_str(dl, "hw_addr", hw_addr);
+	}
+	pr_out_port_handle_end(dl);
+}
+
+static int cmd_subdev_show_cb(const struct nlmsghdr *nlh, void *data)
+{
+	struct genlmsghdr *genl = mnl_nlmsg_get_payload(nlh);
+	struct nlattr *tb[DEVLINK_ATTR_MAX + 1] = {};
+	struct dl *dl = data;
+
+	mnl_attr_parse(nlh, sizeof(*genl), attr_cb, tb);
+	if (!tb[DEVLINK_ATTR_BUS_NAME] || !tb[DEVLINK_ATTR_DEV_NAME] ||
+	    !tb[DEVLINK_ATTR_SUBDEV_INDEX]) {
+		return MNL_CB_ERROR;
+	}
+	pr_out_subdev(dl, tb);
+	return MNL_CB_OK;
+}
+
+static int cmd_subdev_show(struct dl *dl)
+{
+	uint16_t flags = NLM_F_REQUEST | NLM_F_ACK;
+	struct nlmsghdr *nlh;
+	int err;
+
+	if (dl_argc(dl) == 0)
+		flags |= NLM_F_DUMP;
+
+	nlh = mnlg_msg_prepare(dl->nlg, DEVLINK_CMD_SUBDEV_GET, flags);
+
+	if (dl_argc(dl) > 0) {
+		err = dl_argv_parse_put(nlh, dl, DL_OPT_HANDLE_SUBDEV, 0);
+		if (err)
+			return err;
+	}
+
+	pr_out_section_start(dl, "subdev");
+	err = _mnlg_socket_sndrcv(dl->nlg, nlh, cmd_subdev_show_cb, dl);
+	pr_out_section_end(dl);
+	return err;
+}
+
+static int cmd_subdev_set(struct dl *dl)
+{
+	struct nlmsghdr *nlh;
+	int err;
+
+	nlh = mnlg_msg_prepare(dl->nlg, DEVLINK_CMD_SUBDEV_SET,
+			       NLM_F_REQUEST | NLM_F_ACK);
+
+	err = dl_argv_parse_put(nlh, dl,
+				DL_OPT_HANDLE_SUBDEV | DL_OPT_SUBDEV_HW_ADDR,
+				0);
+	if (err)
+		return err;
+
+	return _mnlg_socket_sndrcv(dl->nlg, nlh, NULL, NULL);
+}
+
+static int cmd_subdev(struct dl *dl)
+{
+	if (dl_argv_match(dl, "help")) {
+		cmd_subdev_help();
+		return 0;
+	} else if (dl_argv_match(dl, "show")) {
+		dl_arg_inc(dl);
+		return cmd_subdev_show(dl);
+	} else if (dl_argv_match(dl, "set")) {
+		dl_arg_inc(dl);
+		return cmd_subdev_set(dl);
+	}
+	pr_err("Command \"%s\" not found\n", dl_argv(dl));
+	return -ENOENT;
+}
+
 static void cmd_port_help(void)
 {
 	pr_err("Usage: devlink port show [ DEV/PORT_INDEX ]\n");
@@ -3259,6 +3510,9 @@ static void pr_out_port(struct dl *dl, struct nlattr **tb)
 	if (tb[DEVLINK_ATTR_PORT_SPLIT_GROUP])
 		pr_out_uint(dl, "split_group",
 			    mnl_attr_get_u32(tb[DEVLINK_ATTR_PORT_SPLIT_GROUP]));
+	if (tb[DEVLINK_ATTR_SUBDEV_INDEX])
+		pr_out_uint(dl, "subdev_index",
+			    mnl_attr_get_u32(tb[DEVLINK_ATTR_SUBDEV_INDEX]));
 	pr_out_port_handle_end(dl);
 }
 
@@ -4150,9 +4404,13 @@ static const char *cmd_name(uint8_t cmd)
 	case DEVLINK_CMD_SET: return "set";
 	case DEVLINK_CMD_NEW: return "new";
 	case DEVLINK_CMD_DEL: return "del";
+	case DEVLINK_CMD_SUBDEV_GET:
 	case DEVLINK_CMD_PORT_GET: return "get";
+	case DEVLINK_CMD_SUBDEV_SET:
 	case DEVLINK_CMD_PORT_SET: return "set";
+	case DEVLINK_CMD_SUBDEV_NEW:
 	case DEVLINK_CMD_PORT_NEW: return "new";
+	case DEVLINK_CMD_SUBDEV_DEL:
 	case DEVLINK_CMD_PORT_DEL: return "del";
 	case DEVLINK_CMD_PARAM_GET: return "get";
 	case DEVLINK_CMD_PARAM_SET: return "set";
@@ -4191,6 +4449,11 @@ static const char *cmd_obj(uint8_t cmd)
 	case DEVLINK_CMD_PORT_NEW:
 	case DEVLINK_CMD_PORT_DEL:
 		return "port";
+	case DEVLINK_CMD_SUBDEV_GET:
+	case DEVLINK_CMD_SUBDEV_SET:
+	case DEVLINK_CMD_SUBDEV_NEW:
+	case DEVLINK_CMD_SUBDEV_DEL:
+		return "subdev";
 	case DEVLINK_CMD_PARAM_GET:
 	case DEVLINK_CMD_PARAM_SET:
 	case DEVLINK_CMD_PARAM_NEW:
@@ -4297,6 +4560,17 @@ static int cmd_mon_show_cb(const struct nlmsghdr *nlh, void *data)
 			return MNL_CB_ERROR;
 		pr_out_mon_header(genl->cmd);
 		pr_out_port(dl, tb);
+		break;
+	case DEVLINK_CMD_SUBDEV_GET: /* fall through */
+	case DEVLINK_CMD_SUBDEV_SET: /* fall through */
+	case DEVLINK_CMD_SUBDEV_NEW: /* fall through */
+	case DEVLINK_CMD_SUBDEV_DEL:
+		mnl_attr_parse(nlh, sizeof(*genl), attr_cb, tb);
+		if (!tb[DEVLINK_ATTR_BUS_NAME] || !tb[DEVLINK_ATTR_DEV_NAME] ||
+		    !tb[DEVLINK_ATTR_SUBDEV_INDEX])
+			return MNL_CB_ERROR;
+		pr_out_mon_header(genl->cmd);
+		pr_out_subdev(dl, tb);
 		break;
 	case DEVLINK_CMD_PARAM_GET: /* fall through */
 	case DEVLINK_CMD_PARAM_SET: /* fall through */
@@ -7062,7 +7336,7 @@ static void help(void)
 {
 	pr_err("Usage: devlink [ OPTIONS ] OBJECT { COMMAND | help }\n"
 	       "       devlink [ -f[orce] ] -b[atch] filename -N[etns] netnsname\n"
-	       "where  OBJECT := { dev | port | sb | monitor | dpipe | resource | region | health | trap }\n"
+	       "where  OBJECT := { dev | subdev | port | sb | monitor | dpipe | resource | region | health | trap }\n"
 	       "       OPTIONS := { -V[ersion] | -n[o-nice-names] | -j[son] | -p[retty] | -v[erbose] -s[tatistics] }\n");
 }
 
@@ -7077,6 +7351,9 @@ static int dl_cmd(struct dl *dl, int argc, char **argv)
 	} else if (dl_argv_match(dl, "dev")) {
 		dl_arg_inc(dl);
 		return cmd_dev(dl);
+	} else if (dl_argv_match(dl, "subdev")) {
+		dl_arg_inc(dl);
+		return cmd_subdev(dl);
 	} else if (dl_argv_match(dl, "port")) {
 		dl_arg_inc(dl);
 		return cmd_port(dl);
