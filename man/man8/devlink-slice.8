@@ -32,6 +32,13 @@ devlink-slice \- devlink slice configuration
 .ti -8
 .B devlink slice help
 
+.ti -8
+.B devlink slice rate show
+.RI "[ " RATE_OBJ_SPEC " ]"
+
+.IR RATE_OBJ_SPEC " := " DEV/SLICE_INDEX
+.BI "type leaf"
+
 .SH "DESCRIPTION"
 .SS devlink slice set - change devlink slice attributes
 
@@ -55,6 +62,13 @@ hw_addr of the target slice
 - specifies the devlink slice to show.
 If this argument is omitted all slices are listed.
 
+.SS devlink slice rate show - display devlink slice rate attributes
+
+.TP
+.I "RATE_OBJ_SPEC"
+specifies the devlink slice rate object (including its type) to show.
+If this argument is omitted rate objects for all slices are listed.
+
 .SH "EXAMPLES"
 .PP
 devlink slice show
@@ -71,6 +85,17 @@ devlink slice set pci/0000:01:00.0/1 hw_addr 10:22:33:44:55:66
 .RS 4
 Set the hw_addr of a the specified slice.
 .RE
+.PP
+devlink slice rate show
+.RS 4
+Shows the state of all devlink slice rate objects in the system.
+.RE
+.PP
+devlink slice rate show pci/0000:01:00.0/1 type leaf
+.RS 4
+Shows the state of specified devlink slice rate object of type 'leaf'.
+.RE
+
 
 .SH SEE ALSO
 .BR devlink (8),
