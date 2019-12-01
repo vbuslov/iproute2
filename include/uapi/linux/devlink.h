@@ -122,6 +122,8 @@ enum devlink_command {
 	DEVLINK_CMD_SUBDEV_NEW,
 	DEVLINK_CMD_SUBDEV_DEL,
 
+	DEVLINK_CMD_SUBDEV_RATE_GET,	/* can dump */
+
 	/* add new commands above here */
 	__DEVLINK_CMD_MAX,
 	DEVLINK_CMD_MAX = __DEVLINK_CMD_MAX - 1
@@ -197,6 +199,10 @@ enum devlink_port_flavour {
 enum devlink_subdev_flavour {
 	DEVLINK_SUBDEV_FLAVOUR_PCI_PF,
 	DEVLINK_SUBDEV_FLAVOUR_PCI_VF,
+};
+
+enum devlink_subdev_rate_type {
+	DEVLINK_SUBDEV_RATE_LEAF,
 };
 
 enum devlink_param_cmode {
@@ -442,6 +448,8 @@ enum devlink_attr {
 	DEVLINK_ATTR_SUBDEV_PF_INDEX,		/* u32 */
 	DEVLINK_ATTR_SUBDEV_VF_INDEX,		/* u32 */
 	DEVLINK_ATTR_SUBDEV_HW_ADDR,		/* binary */
+
+	DEVLINK_ATTR_SUBDEV_RATE_TYPE,		/* u16 */
 
 	/* add new attributes above here, update the policy in devlink.c */
 

@@ -32,6 +32,13 @@ devlink-subdev \- devlink subdev configuration
 .ti -8
 .B devlink subdev help
 
+.ti -8
+.B devlink subdev rate show
+.RI "[ " RATE_OBJ_SPEC " ]"
+
+.IR RATE_OBJ_SPEC " := " DEV/SUBDEV_INDEX
+.BI "type leaf"
+
 .SH "DESCRIPTION"
 .SS devlink subdev set - change devlink subdev attributes
 
@@ -55,6 +62,13 @@ hw_addr of the target subdev
 - specifies the devlink subdev to show.
 If this argument is omitted all subdevs are listed.
 
+.SS devlink subdev rate show - display devlink subdev rate attributes
+
+.TP
+.I "RATE_OBJ_SPEC"
+specifies the devlink subdev rate object (including its type) to show.
+If this argument is omitted rate objects for all subdevs are listed.
+
 .SH "EXAMPLES"
 .PP
 devlink subdev show
@@ -70,6 +84,16 @@ Shows the state of specified devlink subdev.
 devlink subdev set pci/0000:01:00.0/1 hw_addr 10:22:33:44:55:66
 .RS 4
 Set the hw_addr of a the specified subdev.
+.RE
+.PP
+devlink subdev rate show
+.RS 4
+Shows the state of all devlink subdev rate objects in the system.
+.RE
+.PP
+devlink subdev rate show pci/0000:01:00.0/1 type leaf
+.RS 4
+Shows the state of specified devlink subdev rate object of type 'leaf'.
 .RE
 
 .SH SEE ALSO

@@ -265,6 +265,7 @@ static void ifname_map_free(struct ifname_map *ifname_map)
 #define DL_OPT_NETNS	BIT(33)
 #define DL_OPT_HANDLE_SUBDEV		BIT(34)
 #define DL_OPT_SUBDEV_HW_ADDR		BIT(35)
+#define DL_OPT_SUBDEV_RATE_TYPE		BIT(36)
 
 struct dl_opts {
 	uint64_t present; /* flags of present items */
@@ -309,6 +310,7 @@ struct dl_opts {
 	uint32_t subdev_index;
 	int hw_addr_len;
 	uint8_t hw_addr[MAX_ADDR_LEN];
+	uint16_t subdev_rate_type;
 };
 
 struct dl {
@@ -506,6 +508,7 @@ static const enum mnl_attr_data_type devlink_policy[DEVLINK_ATTR_MAX + 1] = {
 	[DEVLINK_ATTR_SUBDEV_PF_INDEX] = MNL_TYPE_U32,
 	[DEVLINK_ATTR_SUBDEV_VF_INDEX] = MNL_TYPE_U32,
 	[DEVLINK_ATTR_SUBDEV_HW_ADDR] = MNL_TYPE_BINARY,
+	[DEVLINK_ATTR_SUBDEV_RATE_TYPE] = MNL_TYPE_U16,
 };
 
 static const enum mnl_attr_data_type
@@ -1170,6 +1173,18 @@ static int trap_action_get(const char *actionstr,
 	return 0;
 }
 
+static int subdev_rate_type_get(const char *typestr,
+				enum devlink_subdev_rate_type *p_type)
+{
+	if (strcmp(typestr, "leaf") == 0) {
+		*p_type = DEVLINK_SUBDEV_RATE_LEAF;
+	} else {
+		pr_err("Unknown subdev rate type \"%s\"\n", typestr);
+		return -EINVAL;
+	}
+	return 0;
+}
+
 struct dl_args_metadata {
 	uint64_t o_flag;
 	char err_msg[DL_ARGS_REQUIRED_MAX_ERR_LEN];
@@ -1557,6 +1572,21 @@ static int dl_argv_parse(struct dl *dl, uint64_t o_required,
 			if (opts->hw_addr_len < 0)
 				return -EINVAL;
 			o_found |= DL_OPT_SUBDEV_HW_ADDR;
+		} else if (dl_argv_match(dl, "type") &&
+			   (o_all & DL_OPT_SUBDEV_RATE_TYPE)) {
+			enum devlink_subdev_rate_type type;
+			const char *typestr;
+
+			dl_arg_inc(dl);
+			err = dl_argv_str(dl, &typestr);
+			if (err)
+				return err;
+			err = subdev_rate_type_get(typestr, &type);
+			if (err)
+				return err;
+			opts->subdev_rate_type = type;
+
+			o_found |= DL_OPT_SUBDEV_RATE_TYPE;
 		} else {
 			pr_err("Unknown option \"%s\"\n", dl_argv(dl));
 			return -EINVAL;
@@ -1692,6 +1722,9 @@ static void dl_opts_put(struct nlmsghdr *nlh, struct dl *dl)
 	if (opts->present & DL_OPT_SUBDEV_HW_ADDR)
 		mnl_attr_put(nlh, DEVLINK_ATTR_SUBDEV_HW_ADDR,
 			     opts->hw_addr_len, opts->hw_addr);
+	if (opts->present & DL_OPT_SUBDEV_RATE_TYPE)
+		mnl_attr_put_u16(nlh, DEVLINK_ATTR_SUBDEV_RATE_TYPE,
+				 opts->subdev_rate_type);
 
 }
 
@@ -3274,6 +3307,7 @@ static void cmd_subdev_help(void)
 {
 	pr_err("Usage: devlink subdev show [ DEV/SUBDEV_INDEX ]\n");
 	pr_err("       devlink subdev set DEV/SUBDEV_INDEX [ hw_addr HW_ADDR ]\n");
+	pr_err("       devlink subdev rate show [ DEV/SUBDEV_INDEX type leaf ]\n");
 }
 
 static const char *subdev_flavour_name(uint16_t flavour)
@@ -3395,6 +3429,76 @@ static int cmd_subdev_set(struct dl *dl)
 	return _mnlg_socket_sndrcv(dl->nlg, nlh, NULL, NULL);
 }
 
+static const char *subdev_rate_type_name(uint16_t type)
+{
+	switch (type) {
+	case DEVLINK_SUBDEV_RATE_LEAF:
+		return "leaf";
+	default:
+		return "<unknown type>";
+	}
+}
+
+static void pr_out_subdev_rate(struct dl *dl, struct nlattr **tb)
+{
+	struct nlattr *type_attr = tb[DEVLINK_ATTR_SUBDEV_RATE_TYPE];
+	uint16_t type = mnl_attr_get_u16(type_attr);
+
+	pr_out_subdev_handle_start(dl, tb, false);
+	pr_out_str(dl, "type", subdev_rate_type_name(type));
+	pr_out_port_handle_end(dl);
+}
+
+static int cmd_subdev_rate_show_cb(const struct nlmsghdr *nlh, void *data)
+{
+	struct genlmsghdr *genl = mnl_nlmsg_get_payload(nlh);
+	struct nlattr *tb[DEVLINK_ATTR_MAX + 1] = {};
+	struct dl *dl = data;
+
+	mnl_attr_parse(nlh, sizeof(*genl), attr_cb, tb);
+	if (!tb[DEVLINK_ATTR_BUS_NAME] || !tb[DEVLINK_ATTR_DEV_NAME] ||
+	    !tb[DEVLINK_ATTR_SUBDEV_INDEX] ||
+	    !tb[DEVLINK_ATTR_SUBDEV_RATE_TYPE]) {
+		return MNL_CB_ERROR;
+	}
+	pr_out_subdev_rate(dl, tb);
+	return MNL_CB_OK;
+}
+
+static int cmd_subdev_rate_show(struct dl *dl)
+{
+	uint16_t flags = NLM_F_REQUEST | NLM_F_ACK;
+	struct nlmsghdr *nlh;
+	int err;
+
+	if (dl_no_arg(dl))
+		flags |= NLM_F_DUMP;
+
+	nlh = mnlg_msg_prepare(dl->nlg, DEVLINK_CMD_SUBDEV_RATE_GET, flags);
+
+	if (dl_argc(dl)) {
+		err = dl_argv_parse_put(nlh, dl, DL_OPT_HANDLE_SUBDEV |
+					DL_OPT_SUBDEV_RATE_TYPE, 0);
+		if (err)
+			return err;
+	}
+
+	pr_out_section_start(dl, "subdev rate");
+	err = _mnlg_socket_sndrcv(dl->nlg, nlh, cmd_subdev_rate_show_cb, dl);
+	pr_out_section_end(dl);
+	return err;
+}
+
+static int cmd_subdev_rate(struct dl *dl)
+{
+	if (dl_argv_match(dl, "show") || dl_no_arg(dl)) {
+		dl_arg_inc(dl);
+		return cmd_subdev_rate_show(dl);
+	}
+	pr_err("Command \"%s\" not found\n", dl_argv(dl));
+	return -ENOENT;
+}
+
 static int cmd_subdev(struct dl *dl)
 {
 	if (dl_argv_match(dl, "help")) {
@@ -3406,6 +3510,9 @@ static int cmd_subdev(struct dl *dl)
 	} else if (dl_argv_match(dl, "set")) {
 		dl_arg_inc(dl);
 		return cmd_subdev_set(dl);
+	} else if (dl_argv_match(dl, "rate")) {
+		dl_arg_inc(dl);
+		return cmd_subdev_rate(dl);
 	}
 	pr_err("Command \"%s\" not found\n", dl_argv(dl));
 	return -ENOENT;
@@ -4405,6 +4512,7 @@ static const char *cmd_name(uint8_t cmd)
 	case DEVLINK_CMD_NEW: return "new";
 	case DEVLINK_CMD_DEL: return "del";
 	case DEVLINK_CMD_SUBDEV_GET:
+	case DEVLINK_CMD_SUBDEV_RATE_GET:
 	case DEVLINK_CMD_PORT_GET: return "get";
 	case DEVLINK_CMD_SUBDEV_SET:
 	case DEVLINK_CMD_PORT_SET: return "set";
@@ -4453,6 +4561,7 @@ static const char *cmd_obj(uint8_t cmd)
 	case DEVLINK_CMD_SUBDEV_SET:
 	case DEVLINK_CMD_SUBDEV_NEW:
 	case DEVLINK_CMD_SUBDEV_DEL:
+	case DEVLINK_CMD_SUBDEV_RATE_GET:
 		return "subdev";
 	case DEVLINK_CMD_PARAM_GET:
 	case DEVLINK_CMD_PARAM_SET:
@@ -4564,7 +4673,8 @@ static int cmd_mon_show_cb(const struct nlmsghdr *nlh, void *data)
 	case DEVLINK_CMD_SUBDEV_GET: /* fall through */
 	case DEVLINK_CMD_SUBDEV_SET: /* fall through */
 	case DEVLINK_CMD_SUBDEV_NEW: /* fall through */
-	case DEVLINK_CMD_SUBDEV_DEL:
+	case DEVLINK_CMD_SUBDEV_DEL: /* fall through */
+	case DEVLINK_CMD_SUBDEV_RATE_GET:
 		mnl_attr_parse(nlh, sizeof(*genl), attr_cb, tb);
 		if (!tb[DEVLINK_ATTR_BUS_NAME] || !tb[DEVLINK_ATTR_DEV_NAME] ||
 		    !tb[DEVLINK_ATTR_SUBDEV_INDEX])
