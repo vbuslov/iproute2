@@ -33,16 +33,29 @@ devlink-subdev \- devlink subdev configuration
 .B devlink subdev help
 
 .ti -8
+.BI "devlink subdev rate add " DEV/GROUP_NAME
+.RB "[ " min_tx_rate
+.R RATE ] [
+.BR max_tx_rate " RATE ]"
+
+.ti -8
 .B devlink subdev rate set
 .IR RATE_OBJ_SPEC " ["
 .BR min_tx_rate " RATE ] [ " max_tx_rate " RATE ]"
 
 .ti -8
+.BI "devlink subdev rate del " DEV/GROUP_NAME
+
+.ti -8
 .B devlink subdev rate show
 .RI "[ " RATE_OBJ_SPEC " ]"
 
-.IR RATE_OBJ_SPEC " := " DEV/SUBDEV_INDEX
-.BI "type leaf"
+.IR RATE_OBJ_SPEC " := { " DEV/SUBDEV_INDEX
+.BR "type leaf " |
+.IB DEV/GROUP_NAME " type node"
+.R }
+
+.IR GROUP_NAME " name of subdev rate group object, string that starts with alphabetical character"
 
 .IR RATE " allowed transmit bandwidth, in Mbps"
 
@@ -69,7 +82,7 @@ hw_addr of the target subdev
 - specifies the devlink subdev to show.
 If this argument is omitted all subdevs are listed.
 
-.SS devlink subdev rate show - display devlink subdev rate attributes
+.SS devlink subdev rate show - display devlink subdev rate or group rate attributes
 
 .TP
 .I "RATE_OBJ_SPEC"
@@ -85,6 +98,14 @@ Min tx rate of subdev rate object in Mbps.
 .TP
 .BR max_tx_rate " RATE"
 Max tx rate of subdev rate object in Mbps.
+
+.SS devlink subdev rate add - add subdev rate group
+
+.TP
+.I GROUP_NAME
+Alphanumeric group name string (starts with alphabetical character).
+
+.SS devlink subdev rate del - remove subdev rate group
 
 .SH "EXAMPLES"
 .PP
@@ -116,6 +137,11 @@ Shows the state of specified devlink subdev rate object of type 'leaf'.
 devlink subdev rate set pci/0000:01:00.0/1 type leaf min_tx_rate 10 max_tx_rate 100
 .RS 4
 Sets both min and max tx rates for specified subdev rate object.
+.RE
+.PP
+devlink subdev rate add pci/0000:01:00.0/group1
+.RS 4
+Creates new devlink subdev rate group.
 .RE
 
 .SH SEE ALSO
