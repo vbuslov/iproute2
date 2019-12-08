@@ -1220,6 +1220,54 @@ static int trap_action_get(const char *actionstr,
 	return 0;
 }
 
+static int
+dl_argv_handle_slice_or_rate_node(struct dl *dl, char **p_bus_name,
+				  char **p_dev_name, uint32_t *p_slice_index,
+				  char **p_node_name, uint64_t *p_handle_bit)
+{
+	char *rate_obj, *slice_or_node_id, *handlestr;
+	unsigned int slash_count;
+	int err;
+
+	rate_obj = dl_argv_next(dl);
+	if (!rate_obj) {
+		pr_err("Expected either slice or rate node identification.\n");
+		return -EINVAL;
+	}
+
+	slash_count = strslashcount(rate_obj);
+	if (slash_count != 2) {
+		pr_err("Wrong rate node identification string format.\n");
+		pr_err("Expected \"bus_name/dev_name/{slice_index | node_name}\".\n");
+		return -EINVAL;
+	}
+
+	err = strslashrsplit(rate_obj, &handlestr, &slice_or_node_id);
+	if (err) {
+		pr_err("slice identification \"%s\" is invalid\n", rate_obj);
+		return err;
+	} else if (isdigit(*slice_or_node_id)) {
+		err = strtouint32_t(slice_or_node_id, p_slice_index);
+		if (err) {
+			pr_err("slice index \"%s\" is not a number or not within range\n",
+			       slice_or_node_id);
+			return err;
+		}
+		*p_handle_bit = DL_OPT_HANDLE_SLICE;
+	} else {
+		*p_node_name = slice_or_node_id;
+		*p_handle_bit = DL_OPT_SLICE_RATE_NODE_NAME;
+	}
+
+	err = strslashrsplit(handlestr, p_bus_name, p_dev_name);
+	if (err) {
+		pr_err("slice identification \"%s\" is invalid\n", rate_obj);
+		return err;
+	}
+
+	return 0;
+}
+
 struct dl_args_metadata {
 	uint64_t o_flag;
 	char err_msg[DL_ARGS_REQUIRED_MAX_ERR_LEN];
@@ -1307,6 +1355,20 @@ static int dl_argv_parse(struct dl *dl, uint64_t o_required,
 		if (err)
 			return err;
 		o_found |= DL_OPT_HANDLE_REGION;
+	} else if (o_required & DL_OPT_HANDLE_SLICE &&
+		   o_required & DL_OPT_SLICE_RATE_NODE_NAME) {
+		uint64_t handle_bit;
+
+		err = dl_argv_handle_slice_or_rate_node(dl, &opts->bus_name,
+							&opts->dev_name,
+							&opts->slice_index,
+							&opts->rate_node_name,
+							&handle_bit);
+		if (err)
+			return err;
+		o_required &= ~(DL_OPT_HANDLE_SLICE |
+				DL_OPT_SLICE_RATE_NODE_NAME) | handle_bit;
+		o_found |= handle_bit;
 	} else if (o_required & DL_OPT_HANDLE_SLICE) {
 		err = dl_argv_handle_slice(dl, &opts->bus_name,
 					  &opts->dev_name,
@@ -3359,7 +3421,8 @@ static void cmd_slice_help(void)
 	pr_err("       devlink slice set DEV/SLICE_INDEX [ hw_addr HW_ADDR ]\n");
 	pr_err("       devlink slice rate show [ DEV/{ SLICE_INDEX |\n");
 	pr_err("                                       NODE_NAME } ]\n");
-	pr_err("       devlink slice rate set DEV/SLICE_INDEX\n");
+	pr_err("       devlink slice rate set DEV/{ SLICE_INDEX |\n");
+	pr_err("                                    NODE_NAME }");
 	pr_err("                          [ min_tx_rate RATE ]");
 	pr_err("                          [ max_tx_rate RATE ]");
 	pr_err("       devlink slice rate add DEV/NODE_NAME\n");
@@ -3600,7 +3663,8 @@ static int cmd_slice_rate_show(struct dl *dl)
 	nlh = mnlg_msg_prepare(dl->nlg, DEVLINK_CMD_SLICE_RATE_GET, flags);
 
 	if (dl_argc(dl)) {
-		err = dl_argv_parse_put(nlh, dl, DL_OPT_HANDLE_SLICE, 0);
+		err = dl_argv_parse_put(nlh, dl, DL_OPT_HANDLE_SLICE |
+					DL_OPT_SLICE_RATE_NODE_NAME, 0);
 		if (err)
 			return err;
 	}
@@ -3620,7 +3684,8 @@ static int cmd_slice_rate_set(struct dl *dl)
 			       NLM_F_REQUEST | NLM_F_ACK);
 
 	err = dl_argv_parse_put(nlh, dl,
-				DL_OPT_HANDLE_SLICE,
+				DL_OPT_HANDLE_SLICE |
+				DL_OPT_SLICE_RATE_NODE_NAME,
 				DL_OPT_SLICE_RATE_MIN_TX |
 				DL_OPT_SLICE_RATE_MAX_TX);
 	if (err)
