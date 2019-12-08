@@ -33,11 +33,18 @@ devlink-subdev \- devlink subdev configuration
 .B devlink subdev help
 
 .ti -8
+.B devlink subdev rate set
+.IR RATE_OBJ_SPEC " ["
+.BR min_tx_rate " RATE ] [ " max_tx_rate " RATE ]"
+
+.ti -8
 .B devlink subdev rate show
 .RI "[ " RATE_OBJ_SPEC " ]"
 
 .IR RATE_OBJ_SPEC " := " DEV/SUBDEV_INDEX
 .BI "type leaf"
+
+.IR RATE " allowed transmit bandwidth, in Mbps"
 
 .SH "DESCRIPTION"
 .SS devlink subdev set - change devlink subdev attributes
@@ -69,6 +76,16 @@ If this argument is omitted all subdevs are listed.
 specifies the devlink subdev rate object (including its type) to show.
 If this argument is omitted rate objects for all subdevs are listed.
 
+.SS devlink subdev rate set - change devlink subdev rate attributes
+
+.TP
+.BR min_tx_rate " RATE"
+Min tx rate of subdev rate object in Mbps.
+
+.TP
+.BR max_tx_rate " RATE"
+Max tx rate of subdev rate object in Mbps.
+
 .SH "EXAMPLES"
 .PP
 devlink subdev show
@@ -94,6 +111,11 @@ Shows the state of all devlink subdev rate objects in the system.
 devlink subdev rate show pci/0000:01:00.0/1 type leaf
 .RS 4
 Shows the state of specified devlink subdev rate object of type 'leaf'.
+.RE
+.PP
+devlink subdev rate set pci/0000:01:00.0/1 type leaf min_tx_rate 10 max_tx_rate 100
+.RS 4
+Sets both min and max tx rates for specified subdev rate object.
 .RE
 
 .SH SEE ALSO
