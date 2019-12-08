@@ -1244,6 +1244,57 @@ static int subdev_rate_type_get(const char *typestr,
 	return 0;
 }
 
+static int
+dl_argv_handle_subdev_or_rate_group(struct dl *dl, char **p_bus_name,
+				    char **p_dev_name, uint32_t *p_subdev_index,
+				    char **p_group_name, uint16_t *p_type,
+				    uint64_t *p_handle_bit)
+{
+	enum devlink_subdev_rate_type type;
+	unsigned int slash_count;
+	char *subdev_or_group;
+	const char *typestr;
+	int err;
+
+	subdev_or_group = dl_argv_next(dl);
+	if (!subdev_or_group) {
+		pr_err("Expected either subdev or rate group identification.\n");
+		return -EINVAL;
+	}
+
+	if (!dl_argv_match(dl, "type")) {
+		pr_err("Expected \"type\".\n");
+		return -EINVAL;
+	}
+	dl_arg_inc(dl);
+	err = dl_argv_str(dl, &typestr);
+	if (err)
+		return err;
+	err = subdev_rate_type_get(typestr, &type);
+	if (err)
+		return err;
+	*p_type = type;
+
+	slash_count = strslashcount(subdev_or_group);
+	if (slash_count != 2) {
+		pr_err("Wrong rate group identification string format.\n");
+		pr_err("Expected \"bus_name/dev_name/{subdev_index | group_name}\".\n");
+		return -EINVAL;
+	}
+	if (type == DEVLINK_SUBDEV_RATE_LEAF) {
+		*p_handle_bit = DL_OPT_HANDLE_SUBDEV;
+		return __dl_argv_handle_subdev(subdev_or_group, p_bus_name,
+					       p_dev_name, p_subdev_index);
+	} else if (type == DEVLINK_SUBDEV_RATE_NODE) {
+		*p_handle_bit = DL_OPT_SUBDEV_RATE_GROUP_NAME;
+		return __dl_argv_handle_subdev_rate_group(subdev_or_group,
+							  p_bus_name,
+							  p_dev_name,
+							  p_group_name);
+	}
+	return -EINVAL;
+}
+
 struct dl_args_metadata {
 	uint64_t o_flag;
 	char err_msg[DL_ARGS_REQUIRED_MAX_ERR_LEN];
@@ -1331,6 +1382,22 @@ static int dl_argv_parse(struct dl *dl, uint64_t o_required,
 		if (err)
 			return err;
 		o_found |= DL_OPT_HANDLE_REGION;
+	} else if (o_required & DL_OPT_HANDLE_SUBDEV &&
+		   o_required & DL_OPT_SUBDEV_RATE_GROUP_NAME &&
+		   o_required & DL_OPT_SUBDEV_RATE_TYPE) {
+		uint64_t handle_bit;
+
+		err = dl_argv_handle_subdev_or_rate_group(dl, &opts->bus_name,
+							  &opts->dev_name,
+							  &opts->subdev_index,
+							  &opts->rate_group_name,
+							  &opts->subdev_rate_type,
+							  &handle_bit);
+		if (err)
+			return err;
+		o_required &= ~(DL_OPT_HANDLE_SUBDEV |
+				DL_OPT_SUBDEV_RATE_GROUP_NAME) | handle_bit;
+		o_found |= handle_bit | DL_OPT_SUBDEV_RATE_TYPE;
 	} else if (o_required & DL_OPT_HANDLE_SUBDEV) {
 		err = dl_argv_handle_subdev(dl, &opts->bus_name,
 					  &opts->dev_name,
@@ -3401,8 +3468,8 @@ static void cmd_subdev_help(void)
 	pr_err("       devlink subdev set DEV/SUBDEV_INDEX [ hw_addr HW_ADDR ]\n");
 	pr_err("       devlink subdev rate show [ DEV/{ SUBDEV_INDEX type leaf |\n");
 	pr_err("                                        GROUP_NAME type node } ]\n");
-	pr_err("       devlink subdev rate set DEV/SUBDEV_INDEX\n");
-	pr_err("                           type leaf");
+	pr_err("       devlink subdev rate set DEV/{ SUBDEV_INDEX type leaf |\n");
+	pr_err("                                     GROUP_NAME type node }");
 	pr_err("                           [ min_tx_rate RATE ]");
 	pr_err("                           [ max_tx_rate RATE ]");
 	pr_err("       devlink subdev rate add DEV/GROUP_NAME\n");
@@ -3644,6 +3711,7 @@ static int cmd_subdev_rate_show(struct dl *dl)
 
 	if (dl_argc(dl)) {
 		err = dl_argv_parse_put(nlh, dl, DL_OPT_HANDLE_SUBDEV |
+					DL_OPT_SUBDEV_RATE_GROUP_NAME |
 					DL_OPT_SUBDEV_RATE_TYPE, 0);
 		if (err)
 			return err;
@@ -3664,7 +3732,9 @@ static int cmd_subdev_rate_set(struct dl *dl)
 			       NLM_F_REQUEST | NLM_F_ACK);
 
 	err = dl_argv_parse_put(nlh, dl,
-				DL_OPT_HANDLE_SUBDEV | DL_OPT_SUBDEV_RATE_TYPE,
+				DL_OPT_HANDLE_SUBDEV |
+				DL_OPT_SUBDEV_RATE_GROUP_NAME |
+				DL_OPT_SUBDEV_RATE_TYPE,
 				DL_OPT_SUBDEV_RATE_MIN_TX |
 				DL_OPT_SUBDEV_RATE_MAX_TX);
 	if (err)

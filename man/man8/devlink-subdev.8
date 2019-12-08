@@ -89,7 +89,7 @@ If this argument is omitted all subdevs are listed.
 specifies the devlink subdev rate object (including its type) to show.
 If this argument is omitted rate objects for all subdevs are listed.
 
-.SS devlink subdev rate set - change devlink subdev rate attributes
+.SS devlink subdev rate set - change devlink subdev rate or group rate attributes
 
 .TP
 .BR min_tx_rate " RATE"
@@ -142,6 +142,11 @@ Sets both min and max tx rates for specified subdev rate object.
 devlink subdev rate add pci/0000:01:00.0/group1
 .RS 4
 Creates new devlink subdev rate group.
+.RE
+.PP
+devlink subdev rate set pci/0000:01:00.0/group1 type node min_tx_rate 10 max_tx_rate 100
+.RS 4
+Sets both min and max tx rates for specified subdev rate group.
 .RE
 
 .SH SEE ALSO
