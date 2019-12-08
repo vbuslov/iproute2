@@ -33,10 +33,18 @@ devlink-slice \- devlink slice configuration
 .B devlink slice help
 
 .ti -8
+.B devlink slice rate set
+.IR RATE_OBJ_SPEC " ["
+.BR min_tx_rate " RATE ] [ " max_tx_rate " RATE ]"
+
+.ti -8
 .B devlink slice rate show
 .RI "[ " RATE_OBJ_SPEC " ]"
 
 .IR RATE_OBJ_SPEC " := " DEV/SLICE_INDEX
+
+.IR RATE " allowed transmit bandwidth, in Mbps"
+
 .SH "DESCRIPTION"
 .SS devlink slice set - change devlink slice attributes
 
@@ -67,6 +75,16 @@ If this argument is omitted all slices are listed.
 specifies the devlink slice rate object to show.
 If this argument is omitted rate objects for all slices are listed.
 
+.SS devlink slice rate set - change devlink slice rate attributes
+
+.TP
+.BR min_tx_rate " RATE"
+Min tx rate of slice rate object in Mbps.
+
+.TP
+.BR max_tx_rate " RATE"
+Max tx rate of slice rate object in Mbps.
+
 .SH "EXAMPLES"
 .PP
 devlink slice show
@@ -92,6 +110,11 @@ Shows the state of all devlink slice rate objects in the system.
 devlink slice rate show pci/0000:01:00.0/1
 .RS 4
 Shows the state of specified devlink slice rate object.
+.RE
+.PP
+devlink slice rate set pci/0000:01:00.0/1 min_tx_rate 10 max_tx_rate 100
+.RS 4
+Sets both min and max tx rates for specified slice rate object.
 .RE
 
 
