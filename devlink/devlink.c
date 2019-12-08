@@ -1244,6 +1244,57 @@ static int slice_rate_type_get(const char *typestr,
 	return 0;
 }
 
+static int
+dl_argv_handle_slice_or_rate_group(struct dl *dl, char **p_bus_name,
+				   char **p_dev_name, uint32_t *p_slice_index,
+				   char **p_group_name, uint16_t *p_type,
+				   uint64_t *p_handle_bit)
+{
+	enum devlink_slice_rate_type type;
+	unsigned int slash_count;
+	char *slice_or_group;
+	const char *typestr;
+	int err;
+
+	slice_or_group = dl_argv_next(dl);
+	if (!slice_or_group) {
+		pr_err("Expected either slice or rate group identification.\n");
+		return -EINVAL;
+	}
+
+	if (!dl_argv_match(dl, "type")) {
+		pr_err("Expected \"type\".\n");
+		return -EINVAL;
+	}
+	dl_arg_inc(dl);
+	err = dl_argv_str(dl, &typestr);
+	if (err)
+		return err;
+	err = slice_rate_type_get(typestr, &type);
+	if (err)
+		return err;
+	*p_type = type;
+
+	slash_count = strslashcount(slice_or_group);
+	if (slash_count != 2) {
+		pr_err("Wrong rate group identification string format.\n");
+		pr_err("Expected \"bus_name/dev_name/{slice_index | group_name}\".\n");
+		return -EINVAL;
+	}
+	if (type == DEVLINK_SLICE_RATE_LEAF) {
+		*p_handle_bit = DL_OPT_HANDLE_SLICE;
+		return __dl_argv_handle_slice(slice_or_group, p_bus_name,
+					      p_dev_name, p_slice_index);
+	} else if (type == DEVLINK_SLICE_RATE_NODE) {
+		*p_handle_bit = DL_OPT_SLICE_RATE_GROUP_NAME;
+		return __dl_argv_handle_slice_rate_group(slice_or_group,
+							 p_bus_name,
+							 p_dev_name,
+							 p_group_name);
+	}
+	return -EINVAL;
+}
+
 struct dl_args_metadata {
 	uint64_t o_flag;
 	char err_msg[DL_ARGS_REQUIRED_MAX_ERR_LEN];
@@ -1331,6 +1382,22 @@ static int dl_argv_parse(struct dl *dl, uint64_t o_required,
 		if (err)
 			return err;
 		o_found |= DL_OPT_HANDLE_REGION;
+	} else if (o_required & DL_OPT_HANDLE_SLICE &&
+		   o_required & DL_OPT_SLICE_RATE_GROUP_NAME &&
+		   o_required & DL_OPT_SLICE_RATE_TYPE) {
+		uint64_t handle_bit;
+
+		err = dl_argv_handle_slice_or_rate_group(dl, &opts->bus_name,
+							 &opts->dev_name,
+							 &opts->slice_index,
+							 &opts->rate_group_name,
+							 &opts->slice_rate_type,
+							 &handle_bit);
+		if (err)
+			return err;
+		o_required &= ~(DL_OPT_HANDLE_SLICE |
+				DL_OPT_SLICE_RATE_GROUP_NAME) | handle_bit;
+		o_found |= handle_bit | DL_OPT_SLICE_RATE_TYPE;
 	} else if (o_required & DL_OPT_HANDLE_SLICE) {
 		err = dl_argv_handle_slice(dl, &opts->bus_name,
 					  &opts->dev_name,
@@ -3401,8 +3468,8 @@ static void cmd_slice_help(void)
 	pr_err("       devlink slice set DEV/SLICE_INDEX [ hw_addr HW_ADDR ]\n");
 	pr_err("       devlink slice rate show [ DEV/{ SLICE_INDEX type leaf |\n");
 	pr_err("                                       GROUP_NAME type node } ]\n");
-	pr_err("       devlink slice rate set DEV/SLICE_INDEX\n");
-	pr_err("                          type leaf");
+	pr_err("       devlink slice rate set DEV/{ SLICE_INDEX type leaf |\n");
+	pr_err("                                    GROUP_NAME type node }");
 	pr_err("                          [ min_tx_rate RATE ]");
 	pr_err("                          [ max_tx_rate RATE ]");
 	pr_err("       devlink slice rate add DEV/GROUP_NAME\n");
@@ -3644,6 +3711,7 @@ static int cmd_slice_rate_show(struct dl *dl)
 
 	if (dl_argc(dl)) {
 		err = dl_argv_parse_put(nlh, dl, DL_OPT_HANDLE_SLICE |
+					DL_OPT_SLICE_RATE_GROUP_NAME |
 					DL_OPT_SLICE_RATE_TYPE, 0);
 		if (err)
 			return err;
@@ -3664,7 +3732,9 @@ static int cmd_slice_rate_set(struct dl *dl)
 			       NLM_F_REQUEST | NLM_F_ACK);
 
 	err = dl_argv_parse_put(nlh, dl,
-				DL_OPT_HANDLE_SLICE | DL_OPT_SLICE_RATE_TYPE,
+				DL_OPT_HANDLE_SLICE |
+				DL_OPT_SLICE_RATE_GROUP_NAME |
+				DL_OPT_SLICE_RATE_TYPE,
 				DL_OPT_SLICE_RATE_MIN_TX |
 				DL_OPT_SLICE_RATE_MAX_TX);
 	if (err)

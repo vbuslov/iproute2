@@ -90,7 +90,7 @@ If this argument is omitted all slices are listed.
 specifies the devlink slice rate object (including its type) to show.
 If this argument is omitted rate objects for all slices are listed.
 
-.SS devlink slice rate set - change devlink slice rate attributes
+.SS devlink slice rate set - change devlink slice rate or group rate attributes
 
 .TP
 .BR min_tx_rate " RATE"
@@ -143,6 +143,11 @@ Sets both min and max tx rates for specified slice rate object.
 devlink slice rate add pci/0000:01:00.0/group1
 .RS 4
 Creates new devlink slice rate group.
+.RE
+.PP
+devlink slice rate set pci/0000:01:00.0/group1 type node min_tx_rate 10 max_tx_rate 100
+.RS 4
+Sets both min and max tx rates for specified slice rate group.
 .RE
 
 
