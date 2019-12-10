@@ -270,6 +270,7 @@ static void ifname_map_free(struct ifname_map *ifname_map)
 #define DL_OPT_SLICE_RATE_MIN_TX	BIT(37)
 #define DL_OPT_SLICE_RATE_MAX_TX	BIT(38)
 #define DL_OPT_SLICE_RATE_GROUP_NAME	BIT(39)
+#define DL_OPT_SLICE_RATE_PARENT	BIT(40)
 
 struct dl_opts {
 	uint64_t present; /* flags of present items */
@@ -318,6 +319,7 @@ struct dl_opts {
 	uint32_t slice_rate_min_tx;
 	uint32_t slice_rate_max_tx;
 	char *rate_group_name;
+	const char *rate_parent;
 };
 
 struct dl {
@@ -519,6 +521,7 @@ static const enum mnl_attr_data_type devlink_policy[DEVLINK_ATTR_MAX + 1] = {
 	[DEVLINK_ATTR_SLICE_RATE_MIN_TX] = MNL_TYPE_U32,
 	[DEVLINK_ATTR_SLICE_RATE_MAX_TX] = MNL_TYPE_U32,
 	[DEVLINK_ATTR_SLICE_RATE_GROUP_NAME] = MNL_TYPE_NUL_STRING,
+	[DEVLINK_ATTR_SLICE_RATE_PARENT] = MNL_TYPE_NUL_STRING,
 };
 
 static const enum mnl_attr_data_type
@@ -1734,6 +1737,18 @@ static int dl_argv_parse(struct dl *dl, uint64_t o_required,
 			if (err)
 				return err;
 			o_found |= DL_OPT_SLICE_RATE_MAX_TX;
+		} else if (dl_argv_match(dl, "parent") &&
+			   (o_all & DL_OPT_SLICE_RATE_PARENT)) {
+			dl_arg_inc(dl);
+			err = dl_argv_str(dl, &opts->rate_parent);
+			if (err)
+				return err;
+			o_found |= DL_OPT_SLICE_RATE_PARENT;
+		} else if (dl_argv_match(dl, "noparent") &&
+			   (o_all & DL_OPT_SLICE_RATE_PARENT)) {
+			dl_arg_inc(dl);
+			opts->rate_parent = "noparent";
+			o_found |= DL_OPT_SLICE_RATE_PARENT;
 		} else {
 			pr_err("Unknown option \"%s\"\n", dl_argv(dl));
 			return -EINVAL;
@@ -1884,6 +1899,9 @@ static void dl_opts_put(struct nlmsghdr *nlh, struct dl *dl)
 	if (opts->present & DL_OPT_SLICE_RATE_MAX_TX)
 		mnl_attr_put_u32(nlh, DEVLINK_ATTR_SLICE_RATE_MAX_TX,
 				 opts->slice_rate_max_tx);
+	if (opts->present & DL_OPT_SLICE_RATE_PARENT)
+		mnl_attr_put_strz(nlh, DEVLINK_ATTR_SLICE_RATE_PARENT,
+				  opts->rate_parent);
 
 }
 
@@ -3472,6 +3490,7 @@ static void cmd_slice_help(void)
 	pr_err("                                    GROUP_NAME type node }");
 	pr_err("                          [ min_tx_rate RATE ]");
 	pr_err("                          [ max_tx_rate RATE ]");
+	pr_err("                          [ parent { GROUP_NAME | noparent } ]");
 	pr_err("       devlink slice rate add DEV/GROUP_NAME\n");
 	pr_err("       devlink slice rate del DEV/GROUP_NAME\n");
 
@@ -3656,6 +3675,7 @@ static void pr_out_slice_rate(struct dl *dl, struct nlattr **tb,
 {
 	struct nlattr *min_tx_rate_attr = tb[DEVLINK_ATTR_SLICE_RATE_MIN_TX];
 	struct nlattr *max_tx_rate_attr = tb[DEVLINK_ATTR_SLICE_RATE_MAX_TX];
+	struct nlattr *parent_attr = tb[DEVLINK_ATTR_SLICE_RATE_PARENT];
 
 	pr_out_slice_rate_handle_start(dl, tb, false, type);
 	pr_out_str(dl, "type", slice_rate_type_name(type));
@@ -3671,6 +3691,8 @@ static void pr_out_slice_rate(struct dl *dl, struct nlattr **tb,
 		if (rate)
 			pr_out_uint(dl, "max_tx_rate", rate);
 	}
+	if (parent_attr)
+		pr_out_str(dl, "parent", mnl_attr_get_str(parent_attr));
 	pr_out_slice_rate_handle_end(dl);
 }
 
@@ -3736,7 +3758,8 @@ static int cmd_slice_rate_set(struct dl *dl)
 				DL_OPT_SLICE_RATE_GROUP_NAME |
 				DL_OPT_SLICE_RATE_TYPE,
 				DL_OPT_SLICE_RATE_MIN_TX |
-				DL_OPT_SLICE_RATE_MAX_TX);
+				DL_OPT_SLICE_RATE_MAX_TX |
+				DL_OPT_SLICE_RATE_PARENT);
 	if (err)
 		return err;
 

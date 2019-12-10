@@ -32,6 +32,10 @@ devlink-slice \- devlink slice configuration
 .ti -8
 .B devlink slice help
 
+.TP
+.BI parent " GROUP_NAME " | " noparent"
+Name of parent group to attach rate object to or "noparent" to detach rate object from any parent group.
+
 .ti -8
 .BI "devlink slice rate add " DEV/GROUP_NAME
 .RB "[ " min_tx_rate
@@ -41,7 +45,9 @@ devlink-slice \- devlink slice configuration
 .ti -8
 .B devlink slice rate set
 .IR RATE_OBJ_SPEC " ["
-.BR min_tx_rate " RATE ] [ " max_tx_rate " RATE ]"
+.BR min_tx_rate " RATE ] [ " max_tx_rate " RATE ] [ " parent " {"
+.IR GROUP_NAME " |"
+.BR noparent " } ]"
 
 .ti -8
 .BI "devlink slice rate del " DEV/GROUP_NAME
@@ -148,6 +154,11 @@ Creates new devlink slice rate group.
 devlink slice rate set pci/0000:01:00.0/group1 type node min_tx_rate 10 max_tx_rate 100
 .RS 4
 Sets both min and max tx rates for specified slice rate group.
+.RE
+.PP
+devlink slice rate set pci/0000:01:00.0/1 type node parent group1
+.RS 4
+Attaches slice rate object to 'group1' rate group.
 .RE
 
 
