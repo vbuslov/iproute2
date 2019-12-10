@@ -41,7 +41,9 @@ devlink-subdev \- devlink subdev configuration
 .ti -8
 .B devlink subdev rate set
 .IR RATE_OBJ_SPEC " ["
-.BR min_tx_rate " RATE ] [ " max_tx_rate " RATE ]"
+.BR min_tx_rate " RATE ] [ " max_tx_rate " RATE ] [ " parent " {"
+.IR GROUP_NAME " |"
+.BR noparent " } ]"
 
 .ti -8
 .BI "devlink subdev rate del " DEV/GROUP_NAME
@@ -99,6 +101,10 @@ Min tx rate of subdev rate object in Mbps.
 .BR max_tx_rate " RATE"
 Max tx rate of subdev rate object in Mbps.
 
+.TP
+.BI parent " GROUP_NAME " | " noparent"
+Name of parent group to attach rate object to or "noparent" to detach rate object from any parent group.
+
 .SS devlink subdev rate add - add subdev rate group
 
 .TP
@@ -147,6 +153,11 @@ Creates new devlink subdev rate group.
 devlink subdev rate set pci/0000:01:00.0/group1 type node min_tx_rate 10 max_tx_rate 100
 .RS 4
 Sets both min and max tx rates for specified subdev rate group.
+.RE
+.PP
+devlink subdev rate set pci/0000:01:00.0/1 type node parent group1
+.RS 4
+Attaches subdev rate object to 'group1' rate group.
 .RE
 
 .SH SEE ALSO
