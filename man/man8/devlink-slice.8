@@ -1,0 +1,88 @@
+.TH DEVLINK\-SLICE 8 "26 Sep 2019" "iproute2" "Linux"
+.SH NAME
+devlink-slice \- devlink slice configuration
+.SH SYNOPSIS
+.sp
+.ad l
+.in +8
+.ti -8
+.B devlink
+.RI "[ " OPTIONS " ]"
+.B slice
+.RI  " { " COMMAND " | "
+.BR help " }"
+.sp
+
+.ti -8
+.IR OPTIONS " := { "
+\fB\-V\fR[\fIersion\fR] |
+\fB\-n\fR[\fIno-nice-names\fR] }
+
+.ti -8
+.BR "devlink slice set "
+.IR DEV/SLICE_INDEX
+.RI "[ "
+.BR hw_addr " HW_ADDR"
+.RI "]"
+
+.ti -8
+.B devlink slice show
+.RI "[ " DEV/SLICE_INDEX " ]"
+
+.ti -8
+.B devlink slice help
+
+.SH "DESCRIPTION"
+.SS devlink slice set - change devlink slice attributes
+
+.PP
+.B "DEV/SLICE_INDEX"
+- specifies the devlink slice to operate on.
+
+.in +4
+Format is:
+.in +2
+BUS_NAME/BUS_ADDRESS/SLICE_INDEX
+
+.TP
+.BR hw_addr " HW_ADDR"
+hw_addr of the target slice
+
+.SS devlink slice show - display devlink slice attributes
+
+.PP
+.I "DEV/SLICE_INDEX"
+- specifies the devlink slice to show.
+If this argument is omitted all slices are listed.
+
+.SH "EXAMPLES"
+.PP
+devlink slice show
+.RS 4
+Shows the state of all devlink slices on the system.
+.RE
+.PP
+devlink slice show pci/0000:01:00.0/1
+.RS 4
+Shows the state of specified devlink slice.
+.RE
+.PP
+devlink slice set pci/0000:01:00.0/1 hw_addr 10:22:33:44:55:66
+.RS 4
+Set the hw_addr of a the specified slice.
+.RE
+
+.SH SEE ALSO
+.BR devlink (8),
+.BR devlink-dev (8),
+.BR devlink-sb (8),
+.BR devlink-monitor (8),
+.BR devlink-port (8),
+.BR devlink-health (8),
+.BR devlink-resource (8),
+.BR devlink-trap (8),
+.BR devlink-region (8),
+.br
+
+.SH AUTHOR
+Yuval Avnery <yuvalav@mellanox.com>
