@@ -33,15 +33,26 @@ devlink-slice \- devlink slice configuration
 .B devlink slice help
 
 .ti -8
+.BI "devlink slice rate add " DEV/NODE_NAME
+.RB "[ " min_tx_rate
+.R RATE ] [
+.BR max_tx_rate " RATE ]"
+
+.ti -8
 .B devlink slice rate set
 .IR RATE_OBJ_SPEC " ["
 .BR min_tx_rate " RATE ] [ " max_tx_rate " RATE ]"
 
 .ti -8
+.BI "devlink slice rate del " DEV/NODE_NAME
+
+.ti -8
 .B devlink slice rate show
 .RI "[ " RATE_OBJ_SPEC " ]"
 
-.IR RATE_OBJ_SPEC " := " DEV/SLICE_INDEX
+.IR RATE_OBJ_SPEC " := { " DEV/SLICE_INDEX | DEV/NODE_NAME }
+
+.IR NODE_NAME " name of slice rate node object, string that starts with alphabetical character"
 
 .IR RATE " allowed transmit bandwidth, in Mbps"
 
@@ -68,7 +79,7 @@ hw_addr of the target slice
 - specifies the devlink slice to show.
 If this argument is omitted all slices are listed.
 
-.SS devlink slice rate show - display devlink slice rate attributes
+.SS devlink slice rate show - display devlink slice rate or node rate attributes
 
 .TP
 .I "RATE_OBJ_SPEC"
@@ -84,6 +95,14 @@ Min tx rate of slice rate object in Mbps.
 .TP
 .BR max_tx_rate " RATE"
 Max tx rate of slice rate object in Mbps.
+
+.SS devlink slice rate add - add slice rate node
+
+.TP
+.I NODE_NAME
+Alphanumeric node name string (starts with alphabetical character).
+
+.SS devlink slice rate del - remove slice rate node
 
 .SH "EXAMPLES"
 .PP
@@ -115,6 +134,11 @@ Shows the state of specified devlink slice rate object.
 devlink slice rate set pci/0000:01:00.0/1 min_tx_rate 10 max_tx_rate 100
 .RS 4
 Sets both min and max tx rates for specified slice rate object.
+.RE
+.PP
+devlink slice rate add pci/0000:01:00.0/node1
+.RS 4
+Creates new devlink slice rate node.
 .RE
 
 
