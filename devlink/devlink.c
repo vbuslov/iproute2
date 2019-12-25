@@ -265,6 +265,7 @@ static void ifname_map_free(struct ifname_map *ifname_map)
 #define DL_OPT_NETNS	BIT(33)
 #define DL_OPT_HANDLE_SLICE		BIT(34)
 #define DL_OPT_SLICE_HW_ADDR		BIT(35)
+#define DL_OPT_SLICE_RATE_TYPE		BIT(36)
 
 struct dl_opts {
 	uint64_t present; /* flags of present items */
@@ -506,6 +507,7 @@ static const enum mnl_attr_data_type devlink_policy[DEVLINK_ATTR_MAX + 1] = {
 	[DEVLINK_ATTR_SLICE_PF_INDEX] = MNL_TYPE_U32,
 	[DEVLINK_ATTR_SLICE_VF_INDEX] = MNL_TYPE_U32,
 	[DEVLINK_ATTR_SLICE_HW_ADDR] = MNL_TYPE_BINARY,
+	[DEVLINK_ATTR_SLICE_RATE_TYPE] = MNL_TYPE_U16,
 };
 
 static const enum mnl_attr_data_type
@@ -3274,6 +3276,7 @@ static void cmd_slice_help(void)
 {
 	pr_err("Usage: devlink slice show [ DEV/SLICE_INDEX ]\n");
 	pr_err("       devlink slice set DEV/SLICE_INDEX [ hw_addr HW_ADDR ]\n");
+	pr_err("       devlink slice rate show [ DEV/SLICE_INDEX ]\n");
 }
 
 static const char *slice_flavour_name(uint16_t flavour)
@@ -3395,6 +3398,75 @@ static int cmd_slice_set(struct dl *dl)
 	return _mnlg_socket_sndrcv(dl->nlg, nlh, NULL, NULL);
 }
 
+static const char *slice_rate_type_name(uint16_t type)
+{
+	switch (type) {
+	case DEVLINK_SLICE_RATE_TYPE_LEAF:
+		return "leaf";
+	default:
+		return "<unknown type>";
+	}
+}
+
+static void pr_out_slice_rate(struct dl *dl, struct nlattr **tb)
+{
+	struct nlattr *type_attr = tb[DEVLINK_ATTR_SLICE_RATE_TYPE];
+	uint16_t type = mnl_attr_get_u16(type_attr);
+
+	pr_out_slice_handle_start(dl, tb, false);
+	pr_out_str(dl, "type", slice_rate_type_name(type));
+	pr_out_port_handle_end(dl);
+}
+
+static int cmd_slice_rate_show_cb(const struct nlmsghdr *nlh, void *data)
+{
+	struct genlmsghdr *genl = mnl_nlmsg_get_payload(nlh);
+	struct nlattr *tb[DEVLINK_ATTR_MAX + 1] = {};
+	struct dl *dl = data;
+
+	mnl_attr_parse(nlh, sizeof(*genl), attr_cb, tb);
+	if (!tb[DEVLINK_ATTR_BUS_NAME] || !tb[DEVLINK_ATTR_DEV_NAME] ||
+	    !tb[DEVLINK_ATTR_SLICE_INDEX] ||
+	    !tb[DEVLINK_ATTR_SLICE_RATE_TYPE]) {
+		return MNL_CB_ERROR;
+	}
+	pr_out_slice_rate(dl, tb);
+	return MNL_CB_OK;
+}
+
+static int cmd_slice_rate_show(struct dl *dl)
+{
+	uint16_t flags = NLM_F_REQUEST | NLM_F_ACK;
+	struct nlmsghdr *nlh;
+	int err;
+
+	if (dl_no_arg(dl))
+		flags |= NLM_F_DUMP;
+
+	nlh = mnlg_msg_prepare(dl->nlg, DEVLINK_CMD_SLICE_RATE_GET, flags);
+
+	if (dl_argc(dl)) {
+		err = dl_argv_parse_put(nlh, dl, DL_OPT_HANDLE_SLICE, 0);
+		if (err)
+			return err;
+	}
+
+	pr_out_section_start(dl, "slice rate");
+	err = _mnlg_socket_sndrcv(dl->nlg, nlh, cmd_slice_rate_show_cb, dl);
+	pr_out_section_end(dl);
+	return err;
+}
+
+static int cmd_slice_rate(struct dl *dl)
+{
+	if (dl_argv_match(dl, "show") || dl_no_arg(dl)) {
+		dl_arg_inc(dl);
+		return cmd_slice_rate_show(dl);
+	}
+	pr_err("Command \"%s\" not found\n", dl_argv(dl));
+	return -ENOENT;
+}
+
 static int cmd_slice(struct dl *dl)
 {
 	if (dl_argv_match(dl, "help")) {
@@ -3407,6 +3479,9 @@ static int cmd_slice(struct dl *dl)
 	} else if (dl_argv_match(dl, "set")) {
 		dl_arg_inc(dl);
 		return cmd_slice_set(dl);
+	} else if (dl_argv_match(dl, "rate")) {
+		dl_arg_inc(dl);
+		return cmd_slice_rate(dl);
 	}
 	pr_err("Command \"%s\" not found\n", dl_argv(dl));
 	return -ENOENT;
@@ -4406,12 +4481,15 @@ static const char *cmd_name(uint8_t cmd)
 	case DEVLINK_CMD_NEW: return "new";
 	case DEVLINK_CMD_DEL: return "del";
 	case DEVLINK_CMD_SLICE_GET:
+	case DEVLINK_CMD_SLICE_RATE_GET:
 	case DEVLINK_CMD_PORT_GET: return "get";
 	case DEVLINK_CMD_SLICE_SET:
 	case DEVLINK_CMD_PORT_SET: return "set";
 	case DEVLINK_CMD_SLICE_NEW:
 	case DEVLINK_CMD_PORT_NEW: return "new";
+	case DEVLINK_CMD_SLICE_RATE_NEW: return "add";
 	case DEVLINK_CMD_SLICE_DEL:
+	case DEVLINK_CMD_SLICE_RATE_DEL:
 	case DEVLINK_CMD_PORT_DEL: return "del";
 	case DEVLINK_CMD_PARAM_GET: return "get";
 	case DEVLINK_CMD_PARAM_SET: return "set";
@@ -4454,6 +4532,7 @@ static const char *cmd_obj(uint8_t cmd)
 	case DEVLINK_CMD_SLICE_SET:
 	case DEVLINK_CMD_SLICE_NEW:
 	case DEVLINK_CMD_SLICE_DEL:
+	case DEVLINK_CMD_SLICE_RATE_GET:
 		return "slice";
 	case DEVLINK_CMD_PARAM_GET:
 	case DEVLINK_CMD_PARAM_SET:
@@ -4572,6 +4651,16 @@ static int cmd_mon_show_cb(const struct nlmsghdr *nlh, void *data)
 			return MNL_CB_ERROR;
 		pr_out_mon_header(genl->cmd);
 		pr_out_slice(dl, tb);
+		break;
+	case DEVLINK_CMD_SLICE_RATE_GET: /* fall through */
+	case DEVLINK_CMD_SLICE_RATE_NEW: /* fall through */
+	case DEVLINK_CMD_SLICE_RATE_DEL:
+		mnl_attr_parse(nlh, sizeof(*genl), attr_cb, tb);
+		if (!tb[DEVLINK_ATTR_BUS_NAME] || !tb[DEVLINK_ATTR_DEV_NAME] ||
+		    !tb[DEVLINK_ATTR_SLICE_INDEX])
+			return MNL_CB_ERROR;
+		pr_out_mon_header(genl->cmd);
+		pr_out_slice_rate(dl, tb);
 		break;
 	case DEVLINK_CMD_PARAM_GET: /* fall through */
 	case DEVLINK_CMD_PARAM_SET: /* fall through */
